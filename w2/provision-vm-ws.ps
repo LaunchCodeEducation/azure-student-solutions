@@ -1,0 +1,39 @@
+# assumptions: students have an adb2c directory configured from week 1
+# label suffix: ws
+# replace names of "student" with "student name"
+
+# TODO: equivalent of set -ex in bash?
+
+$student_name="stud"
+$suffix="ws-3"
+$prefix="${student_name}-${suffix}"
+
+$rg_name="${prefix}-rg"
+$vm_name="${prefix}-vm"
+$vault_name="${prefix}-vault"
+
+# provision the RG
+az group create -n "$rg_name" -l eastus
+az configure -d group="$rg_name"
+
+# provision the VM (admin username/password static)
+az vm create -n "$vm_name" --image Win2019Datacenter --admin-username student --admin-password Launchcode1! --assign-identity
+az configure -d vm="$vm_name"
+
+# provision the keyvault
+az keyvault create -n "$vault_name" --enable-soft-delete true
+
+# set the db connection string secret
+az keyvault secret set --vault-name "$vault_name" -n "ConnectionStrings--Default" --value "server=localhost;port=3306;database=coding_events;user=coding_events;password=launchcode"
+
+# provide permission to vm by MSID
+# capture the MSID
+$vm_msid=$(az vm show --query identity.principalId)
+# allow access
+az keyvault set-policy -n "$vault_name" --object-id "$vm_msid" --secret-permissions get list
+
+# install choco package manager
+az vm run-command invoke --command-id RunPowerShellScript --scripts "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))"
+
+# RDP to server
+mstsc /v:$(az vm list-ip-addresses --query [0].virtualMachine.network.publicIpAddresses[0].ipAddress)
